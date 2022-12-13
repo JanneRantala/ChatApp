@@ -7,23 +7,60 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, synchronize, reopened]    
   workflow_dispatch:
-
+  
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    steps:
+    runs-on: windows-latest
+    steps:     
       - uses: actions/checkout@v2
-
+        with:
+          fetch-depth: 0  
       - name: Set up .NET Core
         uses: actions/setup-dotnet@v1
         with:
           dotnet-version: '6.0.x'
           include-prerelease: true
+      ###################################### SonarCloud #################################
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.11
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v1
+        with:
+          path: ~\sonar\cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v1
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+      - name: Build and analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner begin /k:"JanneRantala_ChatApp" /o:"jannerantala" /d:sonar.login="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+          dotnet build --configuration Release
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.login="${{ secrets.SONAR_TOKEN }}"
 
-      - name: Build with dotnet
-        run: dotnet build --configuration Release
+        ###################################### SonarCloud #################################
+
+      #- name: Build with dotnet
+      #  run: dotnet build --configuration Release
 
       - name: dotnet publish
         run: dotnet publish -c Release -o ${{env.DOTNET_ROOT}}/myapp
@@ -34,24 +71,24 @@ jobs:
           name: .net-app
           path: ${{env.DOTNET_ROOT}}/myapp
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: 'Production'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+  #deploy:
+  #  runs-on: ubuntu-latest
+  #  needs: build
+  #  environment:
+  #    name: 'Production'
+  #    url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
 
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v2
-        with:
-          name: .net-app
+   # steps:
+   #   - name: Download artifact from build job
+   #     uses: actions/download-artifact@v2
+   #     with:
+   #       name: .net-app
 
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: 'haarla-5b'
-          slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_792571AB0A6A40088631E1EDDB1C1251 }}
-          package: .
+    #  - name: Deploy to Azure Web App
+    #    id: deploy-to-webapp
+    #    uses: azure/webapps-deploy@v2
+    #    with:
+    #      app-name: 'haarla-5b'
+    #      slot-name: 'Production'
+    #      publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_792571AB0A6A40088631E1EDDB1C1251 }}
+    #      package: .
